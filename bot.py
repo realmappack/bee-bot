@@ -98,6 +98,7 @@ class OrderProcess(StatesGroup):
     waiting_for_delivery_time = State()  
     
     waiting_for_payment_type = State()   
+    waiting_for_cod_confirmation = State()     # Крок підтвердження умов післяплати
     waiting_for_payment_confirmation = State() 
 
 
@@ -367,6 +368,15 @@ def get_payment_keyboard(delivery_type: str, back_callback: str):
     
     builder.row(
         InlineKeyboardButton(text="⬅️ Назад", callback_data=back_callback),
+        InlineKeyboardButton(text="🏠 На початок", callback_data="go_to_start")
+    )
+    return builder.as_markup()
+
+def get_cod_confirm_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="✅ Згоден з умовами післяплати", callback_data="confirm_cod"))
+    builder.row(
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_payment_choice"),
         InlineKeyboardButton(text="🏠 На початок", callback_data="go_to_start")
     )
     return builder.as_markup()
@@ -1103,15 +1113,54 @@ async def process_payment_choice(callback: types.CallbackQuery, state: FSMContex
     payment_title = payment_map.get(pay_code, "Не вказано")
     await state.update_data(payment_type=payment_title)
     
-    # Якщо післяплата або готівка — одразу фіналізуємо замовлення
-    if pay_code in ["pay_cod", "pay_cash"]:
+    data = await state.get_data()
+    deliv_type = data.get("delivery_type", "")
+    quantity = data.get("quantity", 1)
+    variant_key = data.get("chosen_variant")
+    product_id = data.get("chosen_product")
+
+    # Обчислюємо вартість для підрахунку комісії
+    item_price = 0
+    if variant_key and variant_key.startswith("size_h_"):
+        size_id = variant_key.replace("size_h_", "")
+        item_price = HONEY_PRICES_MAP.get(product_id, {}).get(size_id, 0)
+    elif variant_key in ALL_ITEMS_INFO:
+        item_price = ALL_ITEMS_INFO[variant_key]["price"]
+    
+    total_amount = item_price * quantity
+
+    # ПІСЛЯПЛАТА ПОШТОЮ: Проміжний крок з інформуванням про комісію
+    if pay_code == "pay_cod":
+        if deliv_type == "Нова Пошта":
+            cod_fee = round(total_amount * 0.02 + 20, 2)
+            cod_info = (
+                "⚠️ **Умови оплати при отриманні (Нова Пошта):**\n\n"
+                "Зверніть увагу, що при виборі післяплати поштова служба стягує додаткову комісію за переказ коштів:\n"
+                f"• **Комісія NovaPay:** 2% від суми замовлення + 20 грн (орієнтовно **+{cod_fee} грн**).\n"
+                "• **Вартість доставки:** сплачується окремо за тарифами Нової Пошти при отриманні.\n\n"
+                "Натисніть кнопку нижче, якщо ви згодні з цими умовами 👇"
+            )
+        else:  # Укрпошта
+            cod_fee = round(total_amount * 0.02 + 15, 2)
+            cod_info = (
+                "⚠️ **Умови оплати при отриманні (Укрпошта):**\n\n"
+                "Зверніть увагу, що при виборі післяплати поштова служба стягує додаткову комісію за переказ коштів:\n"
+                f"• **Комісія Укрпошти:** 2% від суми замовлення + 15 грн (орієнтовно **+{cod_fee} грн**).\n"
+                "• **Вартість доставки:** сплачується окремо за тарифами Укрпошти при отриманні.\n\n"
+                "Натисніть кнопку нижче, якщо ви згодні з цими умовами 👇"
+            )
+
+        await callback.message.edit_text(text=cod_info, reply_markup=get_cod_confirm_keyboard(), parse_mode="Markdown")
+        await state.set_state(OrderProcess.waiting_for_cod_confirmation)
+
+    elif pay_code == "pay_cash":
         await finalize_order(callback.message, state, callback.from_user.id)
+
     else:
-        # Генеруємо попередній номер замовлення для показу перед оплатою
+        # Оплата на картку або IBAN
         temp_order_id = get_next_order_id()
         await state.update_data(temp_order_id=temp_order_id)
         
-        # Якщо картка або IBAN — виводимо реквізити, номер замовлення та кнопку зв'язку
         if pay_code == "pay_card":
             payment_text = (
                 f"🏷 **Номер вашого замовлення: №{temp_order_id}**\n\n"
@@ -1140,6 +1189,12 @@ async def process_payment_choice(callback: types.CallbackQuery, state: FSMContex
         )
         await state.set_state(OrderProcess.waiting_for_payment_confirmation)
         
+    await callback.answer()
+
+# Підтвердження післяплати ("Згоден з умовами")
+@dp.callback_query(OrderProcess.waiting_for_cod_confirmation, F.data == "confirm_cod")
+async def process_cod_confirmation(callback: types.CallbackQuery, state: FSMContext):
+    await finalize_order(callback.message, state, callback.from_user.id)
     await callback.answer()
 
 @dp.callback_query(F.data == "back_to_payment_choice")
