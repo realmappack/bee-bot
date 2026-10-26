@@ -521,7 +521,13 @@ async def reset_to_main_menu(callback_or_message, state: FSMContext):
     greeting_text = "Вітаємо вас у Bee | Honey! 🐝\n\nЯ допоможу вам легко та швидко оформити замовлення.\nОберіть, будь ласка, що саме вас цікавить:"
     
     if isinstance(callback_or_message, types.CallbackQuery):
-        await callback_or_message.message.edit_text(text=greeting_text, reply_markup=get_main_categories_keyboard())
+        # Прибираємо кнопки зі старого повідомлення
+        try:
+            await callback_or_message.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        # Надсилаємо нове головне меню в самий низ чату
+        await callback_or_message.message.answer(text=greeting_text, reply_markup=get_main_categories_keyboard())
         await callback_or_message.answer()
     else:
         await callback_or_message.answer(text=greeting_text, reply_markup=get_main_categories_keyboard())
@@ -1316,10 +1322,15 @@ async def finalize_order(message: types.Message, state: FSMContext, user_id: int
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🏠 Зробити нове замовлення", callback_data="go_to_start"))
 
+    # Надсилаємо фінальний чек новим повідомленням у самий низ чату, а старе очищуємо від кнопок
     if isinstance(message, types.Message):
         await message.answer(order_summary, reply_markup=builder.as_markup(), parse_mode="Markdown")
     else:
-        await message.edit_text(order_summary, reply_markup=builder.as_markup(), parse_mode="Markdown")
+        await message.bot.send_message(chat_id=message.chat.id, text=order_summary, reply_markup=builder.as_markup(), parse_mode="Markdown")
+        try:
+            await message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
         
     await state.clear()
 
