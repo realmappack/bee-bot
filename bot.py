@@ -29,7 +29,7 @@ def run_web_server():
 threading.Thread(target=run_web_server, daemon=True).start()
 
 
-BOT_TOKEN = "8692855173:AAFroEuqK9uurf7Cr5B4Vv_8A9scM2XgIr8"
+BOT_TOKEN = "8692855173:AAFQc9dsNIlWwT2rOGEs9vz5A4dhiiDSh1w"
 ADMIN_ID = 331804153  # Ваш числовий Telegram ID
 ADMIN_USERNAME = "mappack"  # Ваша аватара/юзернейм для зв'язку (без @)
 
@@ -1264,7 +1264,7 @@ async def finalize_order(message: types.Message, state: FSMContext, user_id: int
     if isinstance(message, types.Message):
         await message.answer(order_summary, reply_markup=builder.as_markup(), parse_mode="Markdown")
     else:
-        await message.edit_text(order_summary, reply_markup=builder.as_markup(), parse_Mode="Markdown")
+        await message.edit_text(order_summary, reply_markup=builder.as_markup(), parse_mode="Markdown")
         
     await state.clear()
 
