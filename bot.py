@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import os
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
@@ -10,6 +12,22 @@ from aiogram.types import InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 logging.basicConfig(level=logging.INFO)
+
+# --- ВЕБСЕРВЕР ДЛЯ RENDER (Щоб сервіс отримував порт і не видавав Exited with status 1) ---
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is running successfully!")
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
+
+# Запускаємо вебсервер у фоновому потоці одразу при старті
+threading.Thread(target=run_web_server, daemon=True).start()
+
 
 BOT_TOKEN = "8692855173:AAFroEuqK9uurf7Cr5B4Vv_8A9scM2XgIr8"
 ADMIN_ID = 331804153  # Ваш числовий Telegram ID
@@ -1148,7 +1166,6 @@ async def process_payment_confirmation(callback: types.CallbackQuery, state: FSM
 async def finalize_order(message: types.Message, state: FSMContext, user_id: int):
     data = await state.get_data()
     
-    # Використовуємо вже згенерований temp_order_id (якщо була передплата) або генеруємо новий (якщо післяплата/готівка)
     order_id = data.get("temp_order_id")
     if not order_id:
         order_id = get_next_order_id()
@@ -1176,7 +1193,6 @@ async def finalize_order(message: types.Message, state: FSMContext, user_id: int
 
     total_amount = item_price * quantity
     
-    # Текст для клієнта
     is_prepaid = pay_type in ["Оплата на картку", "Оплата за реквізитами (IBAN)"]
     
     order_summary = f"🎉 **Замовлення №{order_id} успішно прийнято!**\n\n"
@@ -1216,7 +1232,6 @@ async def finalize_order(message: types.Message, state: FSMContext, user_id: int
 
     order_summary += "\nДякуємо за замовлення у **Bee | Honey**! 🐝"
 
-    # Текст сповіщення для вас (адміна)
     admin_notification = f"🔔 **НОВЕ ЗАМОВЛЕННЯ №{order_id}!** 🔔\n\n"
     admin_notification += f"🛍 **Товар:** {item_name} ({quantity} шт.)\n"
     admin_notification += f"💵 **Сума:** {total_amount} грн\n"
@@ -1238,20 +1253,18 @@ async def finalize_order(message: types.Message, state: FSMContext, user_id: int
     if is_prepaid:
         admin_notification += "\n⏳ *Очікується надходження коштів або чек від клієнта.*"
 
-    # Надсилаємо сповіщення адміністратору
     try:
         await bot.send_message(chat_id=ADMIN_ID, text=admin_notification, parse_mode="Markdown")
     except Exception as e:
         logging.error(f"Не вдалося надіслати сповіщення адміну: {e}")
 
-    # Виводимо клієнту фінальне повідомлення
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🏠 Зробити нове замовлення", callback_data="go_to_start"))
 
     if isinstance(message, types.Message):
         await message.answer(order_summary, reply_markup=builder.as_markup(), parse_mode="Markdown")
     else:
-        await message.edit_text(order_summary, reply_markup=builder.as_markup(), parse_mode="Markdown")
+        await message.edit_text(order_summary, reply_markup=builder.as_markup(), parse_Mode="Markdown")
         
     await state.clear()
 
