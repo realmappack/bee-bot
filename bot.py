@@ -13,7 +13,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 logging.basicConfig(level=logging.INFO)
 
-# --- ВЕБСЕРВЕР ДЛЯ RENDER (Щоб сервіс отримував порт і не видавав Exited with status 1) ---
+# --- ВЕБСЕРВЕР ДЛЯ RENDER ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -25,13 +25,12 @@ def run_web_server():
     server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
     server.serve_forever()
 
-# Запускаємо вебсервер у фоновому потоці одразу при старті
 threading.Thread(target=run_web_server, daemon=True).start()
 
 
 BOT_TOKEN = "8692855173:AAFQc9dsNIlWwT2rOGEs9vz5A4dhiiDSh1w"
-ADMIN_ID = 331804153  # Ваш числовий Telegram ID
-ADMIN_USERNAME = "mappack"  # Ваша аватара/юзернейм для зв'язку (без @)
+ADMIN_ID = 331804153  
+ADMIN_USERNAME = "mappack"  
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -41,8 +40,7 @@ dp = Dispatcher(storage=MemoryStorage())
 COUNTER_FILE = "order_counter.txt"
 
 def get_next_order_id() -> int:
-    """Зчитує останній номер замовлення з файлу, збільшує на 1 та зберігає."""
-    start_number = 101  # початковий номер замовлення, якщо файлу ще немає
+    start_number = 101  
     if os.path.exists(COUNTER_FILE):
         try:
             with open(COUNTER_FILE, "r", encoding="utf-8") as f:
@@ -87,8 +85,9 @@ class OrderProcess(StatesGroup):
     candle_shaped_info_view = State()
     
     waiting_for_quantity = State()       
-    waiting_for_delivery_type = State()  
+    viewing_cart = State()               # Стан перегляду кошика
     
+    waiting_for_delivery_type = State()  
     waiting_for_fio = State()            
     waiting_for_phone = State()          
     waiting_for_city = State()           
@@ -98,7 +97,7 @@ class OrderProcess(StatesGroup):
     waiting_for_delivery_time = State()  
     
     waiting_for_payment_type = State()   
-    waiting_for_cod_confirmation = State()     # Крок підтвердження умов післяплати
+    waiting_for_cod_confirmation = State()     
     waiting_for_payment_confirmation = State() 
 
 
@@ -162,10 +161,6 @@ ALL_ITEMS_INFO = {
     "zabrus_linden": {"name": "🐝 Забрус з липи (650 г)", "price": 150},
     "zabrus_mix": {"name": "🐝 Забрус з різнотрав'я (650 г)", "price": 140},
     "honeycomb_acacia": {"name": "🐝 Мед в сотах з акації (200+ г)", "price": 200},
-    "size_1l": {"name": "🍯 Мед (1 л / 1.4 кг)", "price": 600},
-    "size_05l_plastic": {"name": "🍯 Мед (0.5 л / 0.7 кг — відерце)", "price": 300},
-    "size_05l_glass": {"name": "🍯 Мед (0.5 л / 0.7 кг — банка)", "price": 300},
-    "size_033l": {"name": "🍯 Мед (0.33 л / 0.45 кг)", "price": 200},
 }
 
 HONEY_PRICES_MAP = {
@@ -314,7 +309,7 @@ HONEY_DESCRIPTIONS = {
 }
 
 
-# --- УНІВЕРСАЛЬНА ФУНКЦІЯ ДЛЯ СТВОРЕННЯ НАВІГАЦІЙНИХ КНОПОК ---
+# --- КЛАВІАТУРИ ---
 def get_nav_keyboard(back_callback: str):
     builder = InlineKeyboardBuilder()
     builder.row(
@@ -323,11 +318,10 @@ def get_nav_keyboard(back_callback: str):
     )
     return builder.as_markup()
 
-
-# --- ФУНКЦІЇ КЛАВІАТУР МЕНЮ ---
-
-def get_main_categories_keyboard():
+def get_main_categories_keyboard(cart_count=0):
     builder = InlineKeyboardBuilder()
+    if cart_count > 0:
+        builder.row(InlineKeyboardButton(text=f"🛒 Переглянути кошик ({cart_count})", callback_data="view_cart"))
     builder.row(InlineKeyboardButton(text="🍯 Мед", callback_data="category_honey"))
     builder.row(InlineKeyboardButton(text="🎁 Делікатеси та смаколики", callback_data="category_delicacies"))
     builder.row(InlineKeyboardButton(text="🐝 Інші продукти бджільництва", callback_data="category_bee_products"))
@@ -344,6 +338,22 @@ def get_products_keyboard(category_key):
     )
     return builder.as_markup()
 
+def get_after_add_keyboard(cart_count):
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text=f"🛒 Перейти до кошика ({cart_count})", callback_data="view_cart"))
+    builder.row(InlineKeyboardButton(text="➕ Додати ще товари", callback_data="go_to_start"))
+    return builder.as_markup()
+
+def get_cart_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="✅ Оформити замовлення", callback_data="checkout_cart"))
+    builder.row(InlineKeyboardButton(text="🗑 Очистити кошик", callback_data="clear_cart"))
+    builder.row(
+        InlineKeyboardButton(text="➕ Додати ще товари", callback_data="go_to_start"),
+        InlineKeyboardButton(text="🏠 На початок", callback_data="go_to_start")
+    )
+    return builder.as_markup()
+
 def get_delivery_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🚚 Нова Пошта", callback_data="deliv_np"))
@@ -351,7 +361,7 @@ def get_delivery_keyboard():
     builder.row(InlineKeyboardButton(text="🚗 Доставка по м. Ірпінь", callback_data="deliv_irpin"))
     builder.row(InlineKeyboardButton(text="📍 Самовивіз", callback_data="deliv_pickup"))
     builder.row(
-        InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_quantity"),
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="view_cart"),
         InlineKeyboardButton(text="🏠 На початок", callback_data="go_to_start")
     )
     return builder.as_markup()
@@ -514,23 +524,24 @@ async def ask_for_quantity(callback: types.CallbackQuery, state: FSMContext, ite
     await callback.answer()
 
 
-# --- ОБРОБНИКИ ПОДІЙ НАВІГАЦІЇ ТА ГОЛОВНОГО МЕНЮ ---
+# --- ОБРОБНИКИ НАВІГАЦІЇ ТА ГОЛОВНОГО МЕНЮ ---
 
 async def reset_to_main_menu(callback_or_message, state: FSMContext):
-    await state.clear()
-    greeting_text = "Вітаємо вас у Bee | Honey! 🐝\n\nЯ допоможу вам легко та швидко оформити замовлення.\nОберіть, будь ласка, що саме вас цікавить:"
+    data = await state.get_data()
+    cart = data.get("cart", [])
+    cart_count = sum(item["quantity"] for item in cart)
+    
+    greeting_text = "Вітаємо вас у Bee | Honey! 🐝\n\nЯ допоможу вам легко та швидко сформувати замовлення.\nОберіть, будь ласка, що саме вас цікавить:"
     
     if isinstance(callback_or_message, types.CallbackQuery):
-        # Прибираємо кнопки зі старого повідомлення
         try:
             await callback_or_message.message.edit_reply_markup(reply_markup=None)
         except Exception:
             pass
-        # Надсилаємо нове головне меню в самий низ чату
-        await callback_or_message.message.answer(text=greeting_text, reply_markup=get_main_categories_keyboard())
+        await callback_or_message.message.answer(text=greeting_text, reply_markup=get_main_categories_keyboard(cart_count))
         await callback_or_message.answer()
     else:
-        await callback_or_message.answer(text=greeting_text, reply_markup=get_main_categories_keyboard())
+        await callback_or_message.answer(text=greeting_text, reply_markup=get_main_categories_keyboard(cart_count))
     
     await state.set_state(OrderProcess.waiting_for_category)
 
@@ -606,7 +617,7 @@ async def process_product_selection(callback: types.CallbackQuery, state: FSMCon
     await callback.answer()
 
 
-# Обробники підменю свічок
+# Обробники підменю свічок та продуктів (інфо)
 @dp.callback_query(OrderProcess.waiting_for_candle_classic_sub, F.data == "candle_classic_info")
 async def candle_classic_info_handler(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text=f"💡 **Особливості:**\n\n{CANDLE_CLASSIC_DESC}", reply_markup=get_nav_keyboard("back_to_candle_classic_sub"), parse_mode="Markdown")
@@ -629,8 +640,6 @@ async def back_to_candles_from_classic_handler(callback: types.CallbackQuery, st
 async def process_candle_classic_sel(callback: types.CallbackQuery, state: FSMContext):
     await ask_for_quantity(callback, state, callback.data)
 
-
-# Свічки з вощини
 @dp.callback_query(OrderProcess.waiting_for_candle_voshchyna_sub, F.data == "candle_voshchyna_info")
 async def candle_voshchyna_info_handler(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text=f"💡 **Особливості:**\n\n{CANDLE_VOSHCHYNA_DESC}", reply_markup=get_nav_keyboard("back_to_candle_voshchyna_sub"), parse_mode="Markdown")
@@ -653,8 +662,6 @@ async def back_to_candles_from_voshchyna_handler(callback: types.CallbackQuery, 
 async def process_candle_voshchyna_sel(callback: types.CallbackQuery, state: FSMContext):
     await ask_for_quantity(callback, state, callback.data)
 
-
-# Формові свічки
 @dp.callback_query(OrderProcess.waiting_for_candle_shaped_sub, F.data == "candle_shaped_info")
 async def candle_shaped_info_handler(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text=f"💡 **Особливості:**\n\n{CANDLE_SHAPED_DESC}", reply_markup=get_nav_keyboard("back_to_candle_shaped_sub"), parse_mode="Markdown")
@@ -677,8 +684,6 @@ async def back_to_candles_from_shaped_handler(callback: types.CallbackQuery, sta
 async def process_candle_shaped_sel(callback: types.CallbackQuery, state: FSMContext):
     await ask_for_quantity(callback, state, callback.data)
 
-
-# Інші продукти бджільництва
 @dp.callback_query(OrderProcess.waiting_for_bee_prod_sub, F.data.startswith("bee_info_"))
 async def bee_prod_info_handler(callback: types.CallbackQuery, state: FSMContext):
     product_id = callback.data.replace("bee_info_", "")
@@ -705,8 +710,6 @@ async def back_to_bee_products_list_handler(callback: types.CallbackQuery, state
 async def process_bee_item_sel(callback: types.CallbackQuery, state: FSMContext):
     await ask_for_quantity(callback, state, callback.data)
 
-
-# Паста Амосова
 @dp.callback_query(OrderProcess.waiting_for_amosov_sub, F.data == "amosov_info")
 async def amosov_info_handler(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text="💡 **Корисні властивості:** Паста Амосова чудово зміцнює серце та імунітет!", reply_markup=get_nav_keyboard("back_to_amosov_sub"), parse_mode="Markdown")
@@ -729,8 +732,6 @@ async def back_to_delicacies_from_amosov_handler(callback: types.CallbackQuery, 
 async def process_amosov_sel(callback: types.CallbackQuery, state: FSMContext):
     await ask_for_quantity(callback, state, callback.data)
 
-
-# Крем-мед
 @dp.callback_query(OrderProcess.waiting_for_creamed_sub, F.data == "creamed_info")
 async def creamed_info_handler(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text="💡 **Корисні властивості:** Крем-мед зберігає всі вітаміни та має ніжну текстуру.", reply_markup=get_nav_keyboard("back_to_creamed_sub"), parse_mode="Markdown")
@@ -753,8 +754,6 @@ async def back_to_delicacies_from_creamed_handler(callback: types.CallbackQuery,
 async def process_creamed_sel(callback: types.CallbackQuery, state: FSMContext):
     await ask_for_quantity(callback, state, callback.data)
 
-
-# Мед з горішками
 @dp.callback_query(OrderProcess.waiting_for_nuts_honey_sub, F.data == "nuts_honey_info")
 async def nuts_honey_info_handler(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text="💡 **Корисні властивості:** Мед з горішками ідеально відновлює сили та живить мозок.", reply_markup=get_nav_keyboard("back_to_nuts_honey_sub"), parse_mode="Markdown")
@@ -777,8 +776,6 @@ async def back_to_delicacies_from_nuts_handler(callback: types.CallbackQuery, st
 async def process_nuts_honey_sel(callback: types.CallbackQuery, state: FSMContext):
     await ask_for_quantity(callback, state, callback.data)
 
-
-# Забрус
 @dp.callback_query(OrderProcess.waiting_for_zabrus_sub, F.data == "zabrus_info")
 async def zabrus_info_handler(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text="💡 **Корисні властивості:** Жування забрусу дезінфікує ротову порожнину та зміцнює імунітет.", reply_markup=get_nav_keyboard("back_to_zabrus_sub"), parse_mode="Markdown")
@@ -801,8 +798,6 @@ async def back_to_delicacies_from_zabrus_handler(callback: types.CallbackQuery, 
 async def process_zabrus_sel(callback: types.CallbackQuery, state: FSMContext):
     await ask_for_quantity(callback, state, callback.data)
 
-
-# Сотовий мед
 @dp.callback_query(OrderProcess.waiting_for_honeycomb_sub, F.data == "honeycomb_info")
 async def honeycomb_info_handler(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text="💡 **Корисні властивості:** Мед у сотах — природний антибіотик та джерело вітамінів.", reply_markup=get_nav_keyboard("back_to_honeycomb_sub"), parse_mode="Markdown")
@@ -825,8 +820,6 @@ async def back_to_delicacies_from_honeycomb_handler(callback: types.CallbackQuer
 async def process_honeycomb_sel(callback: types.CallbackQuery, state: FSMContext):
     await ask_for_quantity(callback, state, callback.data)
 
-
-# Сорти меду (фасування)
 @dp.callback_query(OrderProcess.waiting_for_honey_size, F.data == "honey_info")
 async def honey_info_handler(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -855,7 +848,7 @@ async def process_honey_size_selection(callback: types.CallbackQuery, state: FSM
     await ask_for_quantity(callback, state, callback.data)
 
 
-# --- ОБРОБНИК ВВЕДЕННЯ КІЛЬКОСТІ ➔ ВИБІР ДОСТАВКИ ---
+# --- ДОДАВАННЯ ТОВАРУ ДО КОШИКА ПІСЛЯ ВВЕДЕННЯ КІЛЬКОСТІ ---
 @dp.message(OrderProcess.waiting_for_quantity)
 async def process_quantity_input(message: types.Message, state: FSMContext):
     user_input = message.text.strip()
@@ -865,71 +858,97 @@ async def process_quantity_input(message: types.Message, state: FSMContext):
         return
     
     quantity = int(user_input)
-    await state.update_data(quantity=quantity)
+    data = await state.get_data()
+    variant_key = data.get("chosen_variant")
+    product_id = data.get("chosen_product")
     
+    # Визначаємо назву та ціну товару
+    item_name = "Товар"
+    item_price = 0
+    
+    if variant_key and variant_key.startswith("size_h_"):
+        size_id = variant_key.replace("size_h_", "")
+        item_name = f"{HONEY_NAMES_MAP.get(product_id, 'Мед')} ({SIZE_NAMES_MAP.get(size_id, 'фасування')})"
+        item_price = HONEY_PRICES_MAP.get(product_id, {}).get(size_id, 0)
+    elif variant_key in ALL_ITEMS_INFO:
+        item_info = ALL_ITEMS_INFO[variant_key]
+        item_name = item_info["name"]
+        item_price = item_info["price"]
+
+    # Зберігаємо в кошик (список у FSM)
+    cart = data.get("cart", [])
+    cart.append({
+        "name": item_name,
+        "price": item_price,
+        "quantity": quantity,
+        "total": item_price * quantity
+    })
+    
+    await state.update_data(cart=cart, chosen_variant=None)
+    cart_count = sum(item["quantity"] for item in cart)
+
     await message.answer(
-        f"✅ Кількість: **{quantity} шт.**\n\nОберіть зручний спосіб доставки:",
+        f"✅ Успішно додано до кошика!\n"
+        f"📦 **{item_name}** — {quantity} шт. ({item_price * quantity} грн)\n\n"
+        f"Загалом у кошику товарів: **{cart_count} шт.**\n"
+        f"Що бажаєте зробити далі?",
+        reply_markup=get_after_add_keyboard(cart_count),
+        parse_mode="Markdown"
+    )
+    await state.set_state(OrderProcess.viewing_cart)
+
+
+# --- ПЕРЕГЛЯД КОШИКА ---
+@dp.callback_query(F.data == "view_cart")
+async def view_cart_handler(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    cart = data.get("cart", [])
+    
+    if not cart:
+        await callback.message.edit_text(
+            "🛒 Ваш кошик наразі порожній.",
+            reply_markup=InlineKeyboardBuilder().row(InlineKeyboardButton(text="🏠 До каталогу", callback_data="go_to_start")).as_markup()
+        )
+        await callback.answer()
+        return
+
+    cart_text = "🛒 **Ваш кошик замовлень:**\n\n"
+    total_sum = 0
+    for idx, item in enumerate(cart, 1):
+        cart_text += f"{idx}. **{item['name']}**\n"
+        cart_text += f"   {item['quantity']} шт. × {item['price']} грн = **{item['total']} грн**\n\n"
+        total_sum += item['total']
+
+    cart_text += f"💵 **Загальна сума до сплати:** **{total_sum} грн**"
+
+    await callback.message.edit_text(text=cart_text, reply_markup=get_cart_keyboard(), parse_mode="Markdown")
+    await state.set_state(OrderProcess.viewing_cart)
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "clear_cart")
+async def clear_cart_handler(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(cart=[])
+    await callback.message.edit_text(
+        "🗑 Ваш кошик очищено.",
+        reply_markup=InlineKeyboardBuilder().row(InlineKeyboardButton(text="🏠 До каталогу", callback_data="go_to_start")).as_markup()
+    )
+    await callback.answer()
+
+
+@dp.callback_query(OrderProcess.viewing_cart, F.data == "checkout_cart")
+async def checkout_cart_handler(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        text="🚚 Оберіть зручний спосіб доставки:",
         reply_markup=get_delivery_keyboard(),
         parse_mode="Markdown"
     )
     await state.set_state(OrderProcess.waiting_for_delivery_type)
-
-@dp.callback_query(OrderProcess.waiting_for_delivery_type, F.data == "back_to_quantity")
-async def back_to_quantity_handler(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(
-        text="🔢 Введіть бажану кількість товару (цифрами, наприклад: `1`, `2`, `3` тощо):",
-        reply_markup=get_nav_keyboard("back_to_product_variants"),
-        parse_mode="Markdown"
-    )
-    await state.set_state(OrderProcess.waiting_for_quantity)
-    await callback.answer()
-
-@dp.callback_query(F.data == "back_to_product_variants")
-async def back_to_product_variants_handler(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    category_key = data.get("chosen_category")
-    product_id = data.get("chosen_product")
-    
-    if category_key == "candles":
-        if product_id == "prod_candle_classic":
-            await callback.message.edit_text(text="Ви обрали **Звичайну воскову свічку** 🕯\nОберіть позицію:", reply_markup=get_candle_classic_sub_keyboard(), parse_mode="Markdown")
-            await state.set_state(OrderProcess.waiting_for_candle_classic_sub)
-        elif product_id == "prod_candle_voshchyna":
-            await callback.message.edit_text(text="Ви обрали **Свічки з вощини** 🕯\nОберіть розмір:", reply_markup=get_candle_voshchyna_sub_keyboard(), parse_mode="Markdown")
-            await state.set_state(OrderProcess.waiting_for_candle_voshchyna_sub)
-        elif product_id == "prod_candle_shaped":
-            await callback.message.edit_text(text="Ви обрали **Формові свічки** 🕯\nОберіть форму:", reply_markup=get_candle_shaped_sub_keyboard(), parse_mode="Markdown")
-            await state.set_state(OrderProcess.waiting_for_candle_shaped_sub)
-    elif category_key == "bee_products":
-        details = BEE_PRODUCTS_DETAILS.get(product_id, {})
-        await callback.message.edit_text(text=f"{details['title']}\n\n{details['text']}", reply_markup=get_bee_product_sub_keyboard(product_id), parse_mode="Markdown")
-        await state.set_state(OrderProcess.waiting_for_bee_prod_sub)
-    elif category_key == "delicacies":
-        if product_id == "prod_zabrus":
-            await callback.message.edit_text(text="Ви обрали **Забрус** 🎁\nОберіть бажаний різновид:", reply_markup=get_zabrus_sub_keyboard(), parse_mode="Markdown")
-            await state.set_state(OrderProcess.waiting_for_zabrus_sub)
-        elif product_id == "prod_honeycomb":
-            await callback.message.edit_text(text="Ви обрали **Мед у стільниках (сотах)** 🎁\nОберіть позицію:", reply_markup=get_honeycomb_sub_keyboard(), parse_mode="Markdown")
-            await state.set_state(OrderProcess.waiting_for_honeycomb_sub)
-        elif product_id == "prod_nuts_honey":
-            await callback.message.edit_text(text="Ви обрали **Акацієвий мед з горішками** 🎁\nОберіть бажаний варіант:", reply_markup=get_nuts_honey_sub_keyboard(), parse_mode="Markdown")
-            await state.set_state(OrderProcess.waiting_for_nuts_honey_sub)
-        elif product_id == "prod_creamed_honey":
-            await callback.message.edit_text(text="Ви обрали **Крем-мед з добавками** 🎁\nОберіть бажаний варіант:", reply_markup=get_creamed_honey_sub_keyboard(), parse_mode="Markdown")
-            await state.set_state(OrderProcess.waiting_for_creamed_sub)
-        elif product_id == "prod_amosov_paste":
-            await callback.message.edit_text(text="Ви обрали **Пасту Амосова з пилком** 🎁\nОберіть бажаний об'єм:", reply_markup=get_amosov_paste_sub_keyboard(), parse_mode="Markdown")
-            await state.set_state(OrderProcess.waiting_for_amosov_sub)
-    elif category_key == "honey":
-        await callback.message.edit_text(text="🍯 Оберіть бажаний об'єм та фасування:", reply_markup=get_honey_sizes_keyboard(product_id), parse_mode="Markdown")
-        await state.set_state(OrderProcess.waiting_for_honey_size)
-    else:
-        await reset_to_main_menu(callback, state)
-        
     await callback.answer()
 
 
-# --- ОБРОБКА ВИБОРУ СПОСОБУ ДОСТАВКИ ---
+# --- ДОСТАВКА ТА ОПЛАТА ---
+
 @dp.callback_query(OrderProcess.waiting_for_delivery_type, F.data.startswith("deliv_"))
 async def process_delivery_choice(callback: types.CallbackQuery, state: FSMContext):
     delivery_code = callback.data
@@ -942,61 +961,32 @@ async def process_delivery_choice(callback: types.CallbackQuery, state: FSMConte
             "🗓 **Дні та час:** Вівторок та Четвер з 9:00 до 18:00\n\n"
             "👤 Введіть ваше **Ім'я**:"
         )
-        await callback.message.edit_text(text=pickup_info, reply_markup=get_nav_keyboard("back_to_delivery_choice"), parse_mode="Markdown")
+        await callback.message.edit_text(text=pickup_info, reply_markup=get_nav_keyboard("view_cart"), parse_mode="Markdown")
         await state.set_state(OrderProcess.waiting_for_fio)
 
     elif delivery_code == "deliv_irpin":
         await state.update_data(delivery_type="Доставка по м. Ірпінь")
-        await callback.message.edit_text(text="🚗 **Доставка по м. Ірпінь**\n\nВведіть ваше **Прізвище та Ім'я**:", reply_markup=get_nav_keyboard("back_to_delivery_choice"), parse_mode="Markdown")
+        await callback.message.edit_text(text="🚗 **Доставка по м. Ірпінь**\n\nВведіть ваше **Прізвище та Ім'я**:", reply_markup=get_nav_keyboard("view_cart"), parse_mode="Markdown")
         await state.set_state(OrderProcess.waiting_for_fio)
 
     elif delivery_code == "deliv_np":
         await state.update_data(delivery_type="Нова Пошта")
-        await callback.message.edit_text(text="🚚 **Доставка Новою Поштою**\n\nВведіть ваші **ПІБ (Прізвище, Ім'я, По батькові)**:", reply_markup=get_nav_keyboard("back_to_delivery_choice"), parse_mode="Markdown")
+        await callback.message.edit_text(text="🚚 **Доставка Новою Поштою**\n\nВведіть ваші **ПІБ (Прізвище, Ім'я, По батькові)**:", reply_markup=get_nav_keyboard("view_cart"), parse_mode="Markdown")
         await state.set_state(OrderProcess.waiting_for_fio)
 
     elif delivery_code == "deliv_ukrposhta":
         await state.update_data(delivery_type="Укрпошта")
-        await callback.message.edit_text(text="📦 **Доставка Укрпоштою**\n\nВведіть ваші **ПІБ (Прізвище, Ім'я, По батькові)**:", reply_markup=get_nav_keyboard("back_to_delivery_choice"), parse_mode="Markdown")
+        await callback.message.edit_text(text="📦 **Доставка Укрпоштою**\n\nВведіть ваші **ПІБ (Прізвище, Ім'я, По батькові)**:", reply_markup=get_nav_keyboard("view_cart"), parse_mode="Markdown")
         await state.set_state(OrderProcess.waiting_for_fio)
 
     await callback.answer()
 
-@dp.callback_query(F.data == "back_to_delivery_choice")
-async def back_to_delivery_choice_handler(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    quantity = data.get("quantity", 1)
-    await callback.message.edit_text(
-        text=f"✅ Кількість: **{quantity} шт.**\n\nОберіть зручний спосіб доставки:",
-        reply_markup=get_delivery_keyboard(),
-        parse_mode="Markdown"
-    )
-    await state.set_state(OrderProcess.waiting_for_delivery_type)
-    await callback.answer()
-
-
-# --- ЗБИРАННЯ ДАНИХ КЛІЄНТА ---
 
 @dp.message(OrderProcess.waiting_for_fio)
 async def process_fio_input(message: types.Message, state: FSMContext):
     await state.update_data(fio=message.text.strip())
-    await message.answer("📞 Введіть ваш **номер телефону** для зв'язку:", reply_markup=get_nav_keyboard("back_to_fio_step"))
+    await message.answer("📞 Введіть ваш **номер телефону** для зв'язку:", reply_markup=get_nav_keyboard("view_cart"))
     await state.set_state(OrderProcess.waiting_for_phone)
-
-@dp.callback_query(F.data == "back_to_fio_step")
-async def back_to_fio_step_handler(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    deliv_type = data.get("delivery_type")
-    
-    if deliv_type == "Самовивіз":
-        text = "📍 **Самовивіз здійснюється за адресою:**\nм. Ірпінь, вул. Озерна 17\n🗓 **Дні та час:** Вівторок та Четвер з 9:00 до 18:00\n\n👤 Введіть ваше **Ім'я**:"
-    else:
-        text = "👤 Введіть ваші **ПІБ / Ім'я**:"
-        
-    await callback.message.edit_text(text=text, reply_markup=get_nav_keyboard("back_to_delivery_choice"), parse_mode="Markdown")
-    await state.set_state(OrderProcess.waiting_for_fio)
-    await callback.answer()
-
 
 @dp.message(OrderProcess.waiting_for_phone)
 async def process_phone_input(message: types.Message, state: FSMContext):
@@ -1007,21 +997,14 @@ async def process_phone_input(message: types.Message, state: FSMContext):
     deliv_type = data.get("delivery_type")
 
     if deliv_type == "Самовивіз":
-        await message.answer("💳 Оберіть зручний **спосіб оплати**:", reply_markup=get_payment_keyboard(deliv_type, "back_to_phone_step"))
+        await message.answer("💳 Оберіть зручний **спосіб оплати**:", reply_markup=get_payment_keyboard(deliv_type, "view_cart"))
         await state.set_state(OrderProcess.waiting_for_payment_type)
     elif deliv_type == "Доставка по м. Ірпінь":
-        await message.answer("🏡 Введіть **адресу доставки** у м. Ірпінь (вулиця, будинок, квартира):", reply_markup=get_nav_keyboard("back_to_phone_step"))
+        await message.answer("🏡 Введіть **адресу доставки** у м. Ірпінь (вулиця, будинок, квартира):", reply_markup=get_nav_keyboard("view_cart"))
         await state.set_state(OrderProcess.waiting_for_address)
     elif deliv_type in ["Нова Пошта", "Укрпошта"]:
-        await message.answer("🏙 Введіть **місто або село** для доставки:", reply_markup=get_nav_keyboard("back_to_phone_step"))
+        await message.answer("🏙 Введіть **місто або село** для доставки:", reply_markup=get_nav_keyboard("view_cart"))
         await state.set_state(OrderProcess.waiting_for_city)
-
-@dp.callback_query(F.data == "back_to_phone_step")
-async def back_to_phone_step_handler(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(text="📞 Введіть ваш **номер телефону** для зв'язку:", reply_markup=get_nav_keyboard("back_to_fio_step"), parse_mode="Markdown")
-    await state.set_state(OrderProcess.waiting_for_phone)
-    await callback.answer()
-
 
 @dp.message(OrderProcess.waiting_for_city)
 async def process_city_input(message: types.Message, state: FSMContext):
@@ -1030,82 +1013,44 @@ async def process_city_input(message: types.Message, state: FSMContext):
     deliv_type = data.get("delivery_type")
 
     if deliv_type == "Нова Пошта":
-        await message.answer("🏢 Введіть **номер відділення Нової Пошти** (або поштомату):", reply_markup=get_nav_keyboard("back_to_city_step"))
+        await message.answer("🏢 Введіть **номер відділення Нової Пошти** (або поштомату):", reply_markup=get_nav_keyboard("view_cart"))
         await state.set_state(OrderProcess.waiting_for_post_office)
     elif deliv_type == "Укрпошта":
-        await message.answer("📮 Введіть **індекс відділення Укрпошти** (5 цифр):", reply_markup=get_nav_keyboard("back_to_city_step"))
+        await message.answer("📮 Введіть **індекс відділення Укрпошти** (5 цифр):", reply_markup=get_nav_keyboard("view_cart"))
         await state.set_state(OrderProcess.waiting_for_post_index)
-
-@dp.callback_query(F.data == "back_to_city_step")
-async def back_to_city_step_handler(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(text="🏙 Введіть **місто або село** для доставки:", reply_markup=get_nav_keyboard("back_to_phone_step"), parse_mode="Markdown")
-    await state.set_state(OrderProcess.waiting_for_city)
-    await callback.answer()
-
 
 @dp.message(OrderProcess.waiting_for_post_office)
 async def process_post_office_input(message: types.Message, state: FSMContext):
     await state.update_data(post_office=message.text.strip())
     data = await state.get_data()
     deliv_type = data.get("delivery_type")
-    
-    await message.answer("💳 Оберіть зручний **спосіб оплати**:", reply_markup=get_payment_keyboard(deliv_type, "back_to_post_office_step"))
+    await message.answer("💳 Оберіть зручний **спосіб оплати**:", reply_markup=get_payment_keyboard(deliv_type, "view_cart"))
     await state.set_state(OrderProcess.waiting_for_payment_type)
-
-@dp.callback_query(F.data == "back_to_post_office_step")
-async def back_to_post_office_step_handler(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(text="🏢 Введіть **номер відділення Нової Пошти** (або поштомату):", reply_markup=get_nav_keyboard("back_to_city_step"), parse_mode="Markdown")
-    await state.set_state(OrderProcess.waiting_for_post_office)
-    await callback.answer()
-
 
 @dp.message(OrderProcess.waiting_for_post_index)
 async def process_post_index_input(message: types.Message, state: FSMContext):
     await state.update_data(post_index=message.text.strip())
     data = await state.get_data()
     deliv_type = data.get("delivery_type")
-    
-    await message.answer("💳 Оберіть зручний **спосіб оплати**:", reply_markup=get_payment_keyboard(deliv_type, "back_to_post_index_step"))
+    await message.answer("💳 Оберіть зручний **спосіб оплати**:", reply_markup=get_payment_keyboard(deliv_type, "view_cart"))
     await state.set_state(OrderProcess.waiting_for_payment_type)
-
-@dp.callback_query(F.data == "back_to_post_index_step")
-async def back_to_post_index_step_handler(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(text="📮 Введіть **індекс відділення Укрпошти** (5 цифр):", reply_markup=get_nav_keyboard("back_to_city_step"), parse_mode="Markdown")
-    await state.set_state(OrderProcess.waiting_for_post_index)
-    await callback.answer()
-
 
 @dp.message(OrderProcess.waiting_for_address)
 async def process_address_input(message: types.Message, state: FSMContext):
     await state.update_data(address=message.text.strip())
-    await message.answer("⏰ Введіть **бажаний час доставки** (наприклад: *сьогодні після 17:00*):", reply_markup=get_nav_keyboard("back_to_address_step"))
+    await message.answer("⏰ Введіть **бажаний час доставки** (наприклад: *сьогодні після 17:00*):", reply_markup=get_nav_keyboard("view_cart"))
     await state.set_state(OrderProcess.waiting_for_delivery_time)
-
-@dp.callback_query(F.data == "back_to_address_step")
-async def back_to_address_step_handler(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(text="🏡 Введіть **адресу доставки** у м. Ірпінь (вулиця, будинок, квартира):", reply_markup=get_nav_keyboard("back_to_phone_step"), parse_mode="Markdown")
-    await state.set_state(OrderProcess.waiting_for_address)
-    await callback.answer()
-
 
 @dp.message(OrderProcess.waiting_for_delivery_time)
 async def process_delivery_time_input(message: types.Message, state: FSMContext):
     await state.update_data(delivery_time=message.text.strip())
     data = await state.get_data()
     deliv_type = data.get("delivery_type")
-    
-    await message.answer("💳 Оберіть зручний **спосіб оплати**:", reply_markup=get_payment_keyboard(deliv_type, "back_to_delivery_time_step"))
+    await message.answer("💳 Оберіть зручний **спосіб оплати**:", reply_markup=get_payment_keyboard(deliv_type, "view_cart"))
     await state.set_state(OrderProcess.waiting_for_payment_type)
 
-@dp.callback_query(F.data == "back_to_delivery_time_step")
-async def back_to_delivery_time_step_handler(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(text="⏰ Введіть **бажаний час доставки** (наприклад: *сьогодні після 17:00*):", reply_markup=get_nav_keyboard("back_to_address_step"), parse_mode="Markdown")
-    await state.set_state(OrderProcess.waiting_for_delivery_time)
-    await callback.answer()
 
-
-# --- ОБРОБКА ВИБОРУ ОПЛАТИ ---
-
+# --- ВИБІР ОПЛАТИ ТА ПІСЛЯПЛАТА ---
 @dp.callback_query(OrderProcess.waiting_for_payment_type, F.data.startswith("pay_"))
 async def process_payment_choice(callback: types.CallbackQuery, state: FSMContext):
     pay_code = callback.data
@@ -1121,38 +1066,24 @@ async def process_payment_choice(callback: types.CallbackQuery, state: FSMContex
     
     data = await state.get_data()
     deliv_type = data.get("delivery_type", "")
-    quantity = data.get("quantity", 1)
-    variant_key = data.get("chosen_variant")
-    product_id = data.get("chosen_product")
+    cart = data.get("cart", [])
+    total_amount = sum(item["total"] for item in cart)
 
-    # Обчислюємо вартість для підрахунку комісії
-    item_price = 0
-    if variant_key and variant_key.startswith("size_h_"):
-        size_id = variant_key.replace("size_h_", "")
-        item_price = HONEY_PRICES_MAP.get(product_id, {}).get(size_id, 0)
-    elif variant_key in ALL_ITEMS_INFO:
-        item_price = ALL_ITEMS_INFO[variant_key]["price"]
-    
-    total_amount = item_price * quantity
-
-    # ПІСЛЯПЛАТА ПОШТОЮ: Проміжний крок з інформуванням про комісію
     if pay_code == "pay_cod":
         if deliv_type == "Нова Пошта":
             cod_fee = round(total_amount * 0.02 + 20, 2)
             cod_info = (
                 "⚠️ **Умови оплати при отриманні (Нова Пошта):**\n\n"
-                "Зверніть увагу, що при виборі післяплати поштова служба стягує додаткову комісію за переказ коштів:\n"
                 f"• **Комісія NovaPay:** 2% від суми замовлення + 20 грн (орієнтовно **+{cod_fee} грн**).\n"
-                "• **Вартість доставки:** сплачується окремо за тарифами Нової Пошти при отриманні.\n\n"
+                "• **Вартість доставки:** сплачується окремо за тарифами Нової Пошти.\n\n"
                 "Натисніть кнопку нижче, якщо ви згодні з цими умовами 👇"
             )
-        else:  # Укрпошта
+        else:
             cod_fee = round(total_amount * 0.02 + 15, 2)
             cod_info = (
                 "⚠️ **Умови оплати при отриманні (Укрпошта):**\n\n"
-                "Зверніть увагу, що при виборі післяплати поштова служба стягує додаткову комісію за переказ коштів:\n"
                 f"• **Комісія Укрпошти:** 2% від суми замовлення + 15 грн (орієнтовно **+{cod_fee} грн**).\n"
-                "• **Вартість доставки:** сплачується окремо за тарифами Укрпошти при отриманні.\n\n"
+                "• **Вартість доставки:** сплачується окремо за тарифами Укрпошти.\n\n"
                 "Натисніть кнопку нижче, якщо ви згодні з цими умовами 👇"
             )
 
@@ -1163,7 +1094,6 @@ async def process_payment_choice(callback: types.CallbackQuery, state: FSMContex
         await finalize_order(callback.message, state, callback.from_user.id)
 
     else:
-        # Оплата на картку або IBAN
         temp_order_id = get_next_order_id()
         await state.update_data(temp_order_id=temp_order_id)
         
@@ -1171,59 +1101,34 @@ async def process_payment_choice(callback: types.CallbackQuery, state: FSMContex
             payment_text = (
                 f"🏷 **Номер вашого замовлення: №{temp_order_id}**\n\n"
                 f"💳 **Номер картки для оплати:**\n`4441111076765324`\n\n"
-                f"⚠️ *Будь ласка, в коментарях до оплати обов'язково вкажіть номер замовлення (№{temp_order_id})!*\n\n"
-                f"💬 *Якщо ви хочете пришвидшити процес отримання замовлення, надішліть нам інформацію про оплату, чек або скріншот за допомогою кнопки нижче.*\n\n"
-                f"Після здійснення платежу натисніть кнопку «✅ Я сплатив / сплатила» 👇"
+                f"⚠️ *Обов'язково вкажіть номер замовлення (№{temp_order_id}) у коментарях!*\n\n"
+                f"Після платежу натисніть кнопку «✅ Я сплатив / сплатила» 👇"
             )
-        elif pay_code == "pay_iban":
+        else:
             payment_text = (
                 f"🏷 **Номер вашого замовлення: №{temp_order_id}**\n\n"
-                f"📄 **Реквізити для оплати (IBAN):**\n"
-                f"`UA403220010000026006340063223`\n"
-                f"ІПН/ЄДРПОУ: 3347107977\n"
-                f"Отримувач: Овдієнко Павло Юрійович\n"
-                f"Призначення платежу: За замовлення №{temp_order_id}\n\n"
-                f"⚠️ *Обов'язково вказуйте номер замовлення в призначенні платежу!*\n\n"
-                f"💬 *Якщо ви хочете пришвидшити процес отримання замовлення, надішліть нам інформацію про оплату, чек або скріншот за допомогою кнопки нижче.*\n\n"
-                f"Після здійснення платежу натисніть кнопку «✅ Я сплатив / сплатила» 👇"
+                f"📄 **Реквізити (IBAN):**\n`UA403220010000026006340063223`\n"
+                f"Отримувач: Овдієнко Павло Юрійович\n\n"
+                f"Після платежу натисніть кнопку «✅ Я сплатив / сплатила» 👇"
             )
             
-        await callback.message.edit_text(
-            text=payment_text, 
-            reply_markup=get_payment_details_keyboard("back_to_payment_choice"), 
-            parse_mode="Markdown"
-        )
+        await callback.message.edit_text(text=payment_text, reply_markup=get_payment_details_keyboard("view_cart"), parse_mode="Markdown")
         await state.set_state(OrderProcess.waiting_for_payment_confirmation)
         
     await callback.answer()
 
-# Підтвердження післяплати ("Згоден з умовами")
 @dp.callback_query(OrderProcess.waiting_for_cod_confirmation, F.data == "confirm_cod")
 async def process_cod_confirmation(callback: types.CallbackQuery, state: FSMContext):
     await finalize_order(callback.message, state, callback.from_user.id)
     await callback.answer()
 
-@dp.callback_query(F.data == "back_to_payment_choice")
-async def back_to_payment_choice_handler(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    deliv_type = data.get("delivery_type")
-    await callback.message.edit_text(
-        text="💳 Оберіть зручний **спосіб оплати**:",
-        reply_markup=get_payment_keyboard(deliv_type, "back_to_delivery_time_step"),
-        parse_mode="Markdown"
-    )
-    await state.set_state(OrderProcess.waiting_for_payment_type)
-    await callback.answer()
-
-
-# --- ПІДТВЕРДЖЕННЯ ОПЛАТИ ("Я сплатив") ---
 @dp.callback_query(OrderProcess.waiting_for_payment_confirmation, F.data == "pay_confirmed")
 async def process_payment_confirmation(callback: types.CallbackQuery, state: FSMContext):
     await finalize_order(callback.message, state, callback.from_user.id)
     await callback.answer()
 
 
-# --- ФІНАЛІЗАЦІЯ ЗАМОВЛЕННЯ ТА НАДСИЛАННЯ АДМІНІСТРАТОРУ ---
+# --- ФІНАЛІЗАЦІЯ ЗАМОВЛЕННЯ ---
 async def finalize_order(message: types.Message, state: FSMContext, user_id: int):
     data = await state.get_data()
     
@@ -1231,98 +1136,51 @@ async def finalize_order(message: types.Message, state: FSMContext, user_id: int
     if not order_id:
         order_id = get_next_order_id()
     
+    cart = data.get("cart", [])
+    total_amount = sum(item["total"] for item in cart)
     deliv_type = data.get("delivery_type", "Не вказано")
     pay_type = data.get("payment_type", "Не вказано")
-    quantity = data.get("quantity", 1)
     phone = data.get("phone", "Не вказано")
     fio = data.get("fio", "Не вказано")
     
-    variant_key = data.get("chosen_variant")
-    product_id = data.get("chosen_product")
-    
-    item_name = "Обраний товар"
-    item_price = 0
-    
-    if variant_key and variant_key.startswith("size_h_"):
-        size_id = variant_key.replace("size_h_", "")
-        item_name = f"{HONEY_NAMES_MAP.get(product_id, 'Мед')} ({SIZE_NAMES_MAP.get(size_id, 'фасування')})"
-        item_price = HONEY_PRICES_MAP.get(product_id, {}).get(size_id, 0)
-    elif variant_key in ALL_ITEMS_INFO:
-        item_info = ALL_ITEMS_INFO[variant_key]
-        item_name = item_info["name"]
-        item_price = item_info["price"]
-
-    total_amount = item_price * quantity
-    
     is_prepaid = pay_type in ["Оплата на картку", "Оплата за реквізитами (IBAN)"]
     
-    order_summary = f"🎉 **Замовлення №{order_id} успішно прийнято!**\n\n"
-    order_summary += f"🛍 **Товар:** {item_name}\n"
-    order_summary += f"📦 **Кількість:** {quantity} шт.\n"
-    order_summary += f"💵 **Сума замовлення:** **{total_amount} грн**\n"
-    order_summary += f"🚚 **Спосіб доставки:** {deliv_type}\n"
-    order_summary += f"💳 **Спосіб оплати:** {pay_type}\n\n"
+    order_summary = f"🎉 **Замовлення №{order_id} успішно прийнято!**\n\n🛍 **Склад замовлення:**\n"
+    for item in cart:
+        order_summary += f"• {item['name']} — {item['quantity']} шт. ({item['total']} грн)\n"
     
-    if is_prepaid:
-        order_summary += "⏳ **Ми зв'яжемося з вами одразу після надходження коштів на рахунок!**\n\n"
+    order_summary += f"\n💵 **Загальна сума:** **{total_amount} грн**\n"
+    order_summary += f"🚚 **Доставка:** {deliv_type}\n"
+    order_summary += f"💳 **Оплата:** {pay_type}\n\n"
     
     if deliv_type == "Самовивіз":
-        order_summary += f"👤 **Ім'я клієнта:** {fio}\n"
-        order_summary += f"📞 **Телефон:** {phone}\n"
-        order_summary += (
-            "\n📍 **Адреса самовивозу:** м. Ірпінь, вул. Озерна 17\n"
-            "🗓 **Час роботи:** Вівторок та Четвер з 9:00 до 18:00\n"
-        )
+        order_summary += f"👤 {fio}, тел: {phone}\n📍 Адреса: м. Ірпінь, вул. Озерна 17 (ВТ, ЧТ 9:00-18:00)\n"
     elif deliv_type == "Доставка по м. Ірпінь":
-        order_summary += f"👤 **Клієнт:** {fio}\n"
-        order_summary += f"📞 **Телефон:** {phone}\n"
-        order_summary += f"🏡 **Адреса:** {data.get('address')}\n"
-        order_summary += f"⏰ **Час:** {data.get('delivery_time')}\n"
-        if not is_prepaid:
-            order_summary += "\n📞 **Ми зв'яжемося з вами найближчим часом для уточнення деталей!**\n"
+        order_summary += f"👤 {fio}, тел: {phone}\n🏡 Адреса: {data.get('address')}, час: {data.get('delivery_time')}\n"
     elif deliv_type == "Нова Пошта":
-        order_summary += f"👤 **ПІБ:** {fio}\n"
-        order_summary += f"📞 **Телефон:** {phone}\n"
-        order_summary += f"🏙 **Населений пункт:** {data.get('city')}\n"
-        order_summary += f"🏢 **Відділення НП:** {data.get('post_office')}\n"
+        order_summary += f"👤 {fio}, тел: {phone}\n🏙 {data.get('city')}, відділення: {data.get('post_office')}\n"
     elif deliv_type == "Укрпошта":
-        order_summary += f"👤 **ПІБ:** {fio}\n"
-        order_summary += f"📞 **Телефон:** {phone}\n"
-        order_summary += f"🏙 **Населений пункт:** {data.get('city')}\n"
-        order_summary += f"📮 **Індекс:** {data.get('post_index')}\n"
+        order_summary += f"👤 {fio}, тел: {phone}\n🏙 {data.get('city')}, індекс: {data.get('post_index')}\n"
 
     order_summary += "\nДякуємо за замовлення у **Bee | Honey**! 🐝"
 
+    # Адмін сповіщення
     admin_notification = f"🔔 **НОВЕ ЗАМОВЛЕННЯ №{order_id}!** 🔔\n\n"
-    admin_notification += f"🛍 **Товар:** {item_name} ({quantity} шт.)\n"
-    admin_notification += f"💵 **Сума:** {total_amount} грн\n"
+    for item in cart:
+        admin_notification += f"• {item['name']} ({item['quantity']} шт.) — {item['total']} грн\n"
+    admin_notification += f"\n💵 **Загалом:** {total_amount} грн\n"
     admin_notification += f"🚚 **Доставка:** {deliv_type}\n"
     admin_notification += f"💳 **Оплата:** {pay_type}\n"
-    admin_notification += f"👤 **Клієнт:** {fio}\n"
-    admin_notification += f"📞 **Телефон:** {phone}\n"
-    admin_notification += f"🆔 **Telegram ID клієнта:** `{user_id}`\n"
-
-    if deliv_type == "Доставка по м. Ірпінь":
-        admin_notification += f"🏡 **Адреса:** {data.get('address')}\n⏰ **Час:** {data.get('delivery_time')}\n"
-    elif deliv_type in ["Нова Пошта", "Укрпошта"]:
-        admin_notification += f"🏙 **Місто:** {data.get('city')}\n"
-        if deliv_type == "Нова Пошта":
-            admin_notification += f"🏢 **Відділення:** {data.get('post_office')}\n"
-        else:
-            admin_notification += f"📮 **Індекс:** {data.get('post_index')}\n"
-
-    if is_prepaid:
-        admin_notification += "\n⏳ *Очікується надходження коштів або чек від клієнта.*"
+    admin_notification += f"👤 **Клієнт:** {fio}\n📞 **Телефон:** {phone}\n🆔 ` {user_id} `\n"
 
     try:
         await bot.send_message(chat_id=ADMIN_ID, text=admin_notification, parse_mode="Markdown")
     except Exception as e:
-        logging.error(f"Не вдалося надіслати сповіщення адміну: {e}")
+        logging.error(f"Помилка надсилання адміну: {e}")
 
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🏠 Зробити нове замовлення", callback_data="go_to_start"))
 
-    # Надсилаємо фінальний чек новим повідомленням у самий низ чату, а старе очищуємо від кнопок
     if isinstance(message, types.Message):
         await message.answer(order_summary, reply_markup=builder.as_markup(), parse_mode="Markdown")
     else:
