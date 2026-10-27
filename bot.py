@@ -85,7 +85,7 @@ class OrderProcess(StatesGroup):
     candle_shaped_info_view = State()
     
     waiting_for_quantity = State()       
-    viewing_cart = State()               # Стан перегляду кошика
+    viewing_cart = State()               
     
     waiting_for_delivery_type = State()  
     waiting_for_fio = State()            
@@ -320,12 +320,13 @@ def get_nav_keyboard(back_callback: str):
 
 def get_main_categories_keyboard(cart_count=0):
     builder = InlineKeyboardBuilder()
-    if cart_count > 0:
-        builder.row(InlineKeyboardButton(text=f"🛒 Переглянути кошик ({cart_count})", callback_data="view_cart"))
     builder.row(InlineKeyboardButton(text="🍯 Мед", callback_data="category_honey"))
     builder.row(InlineKeyboardButton(text="🎁 Делікатеси та смаколики", callback_data="category_delicacies"))
     builder.row(InlineKeyboardButton(text="🐝 Інші продукти бджільництва", callback_data="category_bee_products"))
     builder.row(InlineKeyboardButton(text="🕯 Натуральні воскові свічки", callback_data="category_candles"))
+    # Кнопка кошика тепер розміщується в самому низу, якщо в ньому є товари
+    if cart_count > 0:
+        builder.row(InlineKeyboardButton(text=f"🛒 Переглянути кошик ({cart_count})", callback_data="view_cart"))
     return builder.as_markup()
 
 def get_products_keyboard(category_key):
@@ -862,7 +863,6 @@ async def process_quantity_input(message: types.Message, state: FSMContext):
     variant_key = data.get("chosen_variant")
     product_id = data.get("chosen_product")
     
-    # Визначаємо назву та ціну товару
     item_name = "Товар"
     item_price = 0
     
@@ -875,7 +875,6 @@ async def process_quantity_input(message: types.Message, state: FSMContext):
         item_name = item_info["name"]
         item_price = item_info["price"]
 
-    # Зберігаємо в кошик (список у FSM)
     cart = data.get("cart", [])
     cart.append({
         "name": item_name,
@@ -1171,7 +1170,7 @@ async def finalize_order(message: types.Message, state: FSMContext, user_id: int
     admin_notification += f"\n💵 **Загалом:** {total_amount} грн\n"
     admin_notification += f"🚚 **Доставка:** {deliv_type}\n"
     admin_notification += f"💳 **Оплата:** {pay_type}\n"
-    admin_notification += f"👤 **Клієнт:** {fio}\n📞 **Телефон:** {phone}\n🆔 ` {user_id} `\n"
+    admin_notification += f"👤 **Клієнт:** {fio}\n📞 **Телефон:** {phone}\n🆔 `{user_id}`\n"
 
     try:
         await bot.send_message(chat_id=ADMIN_ID, text=admin_notification, parse_mode="Markdown")
